@@ -2,10 +2,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Sparkles, BrainCircuit, Activity, LineChart as ChartIcon } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Sparkles, BrainCircuit, Activity, LineChart as ChartIcon, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useStock } from '@/context/StockContext';
-import { generateHistoricalData, runMABacktest, MOCK_NEWS, NewsItem } from '@/lib/stockStore';
+import { generateHistoricalData, runMABacktest, MOCK_NEWS } from '@/lib/stockStore';
+import { getHistoricalData, getNews } from '@/lib/api/apiClient';
 import TradingViewChart from '@/components/TradingViewChart';
 
 type Tab = 'overview' | 'transactions' | 'ai';
@@ -86,8 +88,26 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
 
-  // Generate historical data once for the symbol
-  const historicalData = useMemo(() => generateHistoricalData(symbol, 250), [symbol]);
+  // Fetch real historical data from API, fallback to mock
+  const { data: apiHistorical, isLoading: chartLoading } = useQuery({
+    queryKey: ['historical', symbol],
+    queryFn: () => getHistoricalData(symbol),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const historicalData = useMemo(() => {
+    if (apiHistorical && apiHistorical.length > 0) return apiHistorical;
+    return generateHistoricalData(symbol, 250); // Fallback to mock
+  }, [apiHistorical, symbol]);
+
+  // Fetch real news from API
+  const { data: apiNews, isLoading: newsLoading } = useQuery({
+    queryKey: ['news', symbol],
+    queryFn: () => getNews(symbol),
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
 
   // Backtest engine results
   const backtestResults = useMemo(() => {
@@ -152,7 +172,7 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   const stockTransactions = transactions.filter((t) => t.symbol === symbol);
 
   const fundamentals = STOCK_FUNDAMENTALS[symbol] || DEFAULT_FUNDAMENTALS;
-  const news = MOCK_NEWS[symbol] || MOCK_NEWS.ALL;
+  const mockNews = MOCK_NEWS[symbol] || MOCK_NEWS.ALL;
 
   if (!stock) {
     return (
@@ -375,23 +395,45 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
               {activeTab === 'overview' && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-white tracking-wide">Company News</h3>
-                  <div className="space-y-4">
-                    {news.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-card-border/50 bg-white/[0.01] p-4 hover:bg-white/[0.03] transition-colors"
-                      >
-                        <div className="flex justify-between text-[10px] text-muted">
-                          <span>{item.source}</span>
-                          <span>{item.time}</span>
-                        </div>
-                        <h4 className="text-xs font-bold text-white mt-1 hover:underline cursor-pointer">
-                          {item.title}
-                        </h4>
-                        <p className="text-[11px] text-muted mt-1.5">{item.summary}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {newsLoading ? (
+                    <div className="flex items-center gap-2 text-muted text-xs py-8 justify-center">
+                      <Loader2 size={14} className="animate-spin" /> Loading news...
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {(apiNews && apiNews.length > 0 ? apiNews : mockNews).map((item: any, idx: number) => {
+                        // Handle both API and mock news formats
+                        const isAPI = !!item.headline;
+                        const title = isAPI ? item.headline : item.title;
+                        const summary = isAPI ? item.summary : item.summary;
+                        const source = item.source;
+                        const timeStr = isAPI
+                          ? new Date(item.datetime * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                          : item.time;
+                        const url = item.url || '#';
+                        const key = isAPI ? item.id : (item.id || idx);
+
+                        return (
+                          <a
+                            key={key}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block rounded-xl border border-card-border/50 bg-white/[0.01] p-4 hover:bg-white/[0.03] transition-colors"
+                          >
+                            <div className="flex justify-between text-[10px] text-muted">
+                              <span>{source}</span>
+                              <span>{timeStr}</span>
+                            </div>
+                            <h4 className="text-xs font-bold text-white mt-1 hover:underline">
+                              {title}
+                            </h4>
+                            {summary && <p className="text-[11px] text-muted mt-1.5 line-clamp-2">{summary}</p>}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
