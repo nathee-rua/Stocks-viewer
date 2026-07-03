@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StockInfo, Transaction, INITIAL_STOCKS } from '../lib/stockStore';
 import { getQuote } from '../lib/api/apiClient';
+import { createClient } from '../lib/supabase/client';
 
-// List of tracked symbols
 const TRACKED_SYMBOLS = Object.keys(INITIAL_STOCKS);
 
 export function useStockStore() {
@@ -14,8 +14,10 @@ export function useStockStore() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lastUpdatedSymbol, setLastUpdatedSymbol] = useState<{ symbol: string; direction: 'up' | 'down' } | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
 
-  // Initialize stocks with base prices (immediate)
+  // Initialize stocks with base prices
   useEffect(() => {
     const initialized: Record<string, StockInfo> = {};
     Object.keys(INITIAL_STOCKS).forEach((symbol) => {
@@ -33,12 +35,78 @@ export function useStockStore() {
     setIsClient(true);
   }, []);
 
+  // Listen to Supabase Auth State Change
+  useEffect(() => {
+    if (!isClient) return;
+    const supabase = createClient();
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [isClient]);
+
+  // Load User Profile, Watchlist, and Transactions from Supabase
+  useEffect(() => {
+    if (!user) {
+      setWatchlist([]);
+      setTransactions([]);
+      setUserProfile(null);
+      return;
+    }
+
+    const fetchUserData = async () => {
+      const supabase = createClient();
+
+      // Profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      if (profileData) {
+        setUserProfile(profileData);
+      }
+
+      // Watchlist
+      const { data: wlData, error: wlError } = await supabase
+        .from('watchlists')
+        .select('symbol');
+      if (!wlError && wlData) {
+        setWatchlist(wlData.map((w: any) => w.symbol));
+      }
+
+      // Transactions
+      const { data: txData, error: txError } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('transaction_date', { ascending: false });
+      if (!txError && txData) {
+        const mappedTx: Transaction[] = txData.map((t: any) => ({
+          id: t.id,
+          symbol: t.symbol,
+          type: t.type as 'buy' | 'sell',
+          price: parseFloat(t.price),
+          quantity: parseFloat(t.quantity),
+          date: t.transaction_date,
+        }));
+        setTransactions(mappedTx);
+      }
+    };
+
+    fetchUserData();
+  }, [user]);
+
   // Fetch real quotes from Finnhub API via our API route
   const { data: quotesData } = useQuery({
     queryKey: ['quotes', TRACKED_SYMBOLS],
     queryFn: async () => {
       const results: Record<string, any> = {};
-      // Fetch quotes sequentially with small delay to avoid rate limiting
       for (const symbol of TRACKED_SYMBOLS) {
         try {
           const quote = await getQuote(symbol);
@@ -46,14 +114,13 @@ export function useStockStore() {
             results[symbol] = quote;
           }
         } catch {
-          // Skip failed quotes — fallback to mock
+          // Skip failed quotes
         }
-        // Small delay to respect Finnhub rate limit (60/min)
         await new Promise(r => setTimeout(r, 200));
       }
       return results;
     },
-    refetchInterval: 60000, // Refetch every 60 seconds
+    refetchInterval: 60000,
     enabled: isClient,
     staleTime: 30000,
   });
@@ -69,7 +136,6 @@ export function useStockStore() {
           const prevPrice = updated[symbol].price;
           const direction = quote.price > prevPrice ? 'up' : 'down';
           
-          // Only flash if price actually changed
           if (quote.price !== prevPrice) {
             setLastUpdatedSymbol({ symbol, direction });
             setTimeout(() => setLastUpdatedSymbol(null), 1000);
@@ -88,78 +154,84 @@ export function useStockStore() {
     });
   }, [quotesData]);
 
-  // Load Watchlist and Transactions from LocalStorage
-  useEffect(() => {
-    if (!isClient) return;
-
-    const savedWatchlist = localStorage.getItem('stocks_watchlist');
-    if (savedWatchlist) {
-      try {
-        setWatchlist(JSON.parse(savedWatchlist));
-      } catch {
-        setWatchlist(['AAPL', 'TSLA', 'AMZN', 'SPOT']);
-      }
-    } else {
-      const defaultWatch = ['AAPL', 'TSLA', 'AMZN', 'SPOT'];
-      setWatchlist(defaultWatch);
-      localStorage.setItem('stocks_watchlist', JSON.stringify(defaultWatch));
-    }
-
-    const savedTx = localStorage.getItem('stocks_transactions');
-    if (savedTx) {
-      try {
-        setTransactions(JSON.parse(savedTx));
-      } catch {
-        setTransactions([]);
-      }
-    } else {
-      const defaultTx: Transaction[] = [
-        { id: 'tx-1', symbol: 'AAPL', type: 'buy', price: 175.50, quantity: 15, date: '2026-06-15' },
-        { id: 'tx-2', symbol: 'TSLA', type: 'buy', price: 182.00, quantity: 10, date: '2026-06-20' },
-      ];
-      setTransactions(defaultTx);
-      localStorage.setItem('stocks_transactions', JSON.stringify(defaultTx));
-    }
-  }, [isClient]);
-
   // Watchlist Actions
-  const addToWatchlist = useCallback((symbol: string) => {
+  const addToWatchlist = useCallback(async (symbol: string) => {
+    if (!user) return;
+    const supabase = createClient();
     setWatchlist((prev) => {
       if (prev.includes(symbol)) return prev;
-      const next = [...prev, symbol];
-      localStorage.setItem('stocks_watchlist', JSON.stringify(next));
-      return next;
+      return [...prev, symbol];
     });
-  }, []);
+    const { error } = await supabase.from('watchlists').insert({ user_id: user.id, symbol });
+    if (error) {
+      setWatchlist((prev) => prev.filter(s => s !== symbol));
+    }
+  }, [user]);
 
-  const removeFromWatchlist = useCallback((symbol: string) => {
-    setWatchlist((prev) => {
-      const next = prev.filter((s) => s !== symbol);
-      localStorage.setItem('stocks_watchlist', JSON.stringify(next));
-      return next;
-    });
-  }, []);
+  const removeFromWatchlist = useCallback(async (symbol: string) => {
+    if (!user) return;
+    const supabase = createClient();
+    setWatchlist((prev) => prev.filter((s) => s !== symbol));
+    const { error } = await supabase.from('watchlists').delete().eq('user_id', user.id).eq('symbol', symbol);
+    if (error) {
+      setWatchlist((prev) => [...prev, symbol]);
+    }
+  }, [user]);
 
   // Transaction Actions
-  const addTransaction = useCallback((tx: Omit<Transaction, 'id'>) => {
-    const newTx: Transaction = {
-      ...tx,
-      id: `tx-${Date.now()}`,
-    };
-    setTransactions((prev) => {
-      const next = [newTx, ...prev];
-      localStorage.setItem('stocks_transactions', JSON.stringify(next));
-      return next;
-    });
-  }, []);
+  const addTransaction = useCallback(async (tx: Omit<Transaction, 'id'>) => {
+    if (!user) return;
+    const supabase = createClient();
+    
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert({
+        user_id: user.id,
+        symbol: tx.symbol,
+        type: tx.type,
+        price: tx.price,
+        quantity: tx.quantity,
+        transaction_date: tx.date
+      })
+      .select()
+      .single();
+      
+    if (!error && data) {
+      const newTx: Transaction = {
+        id: data.id,
+        symbol: data.symbol,
+        type: data.type as 'buy' | 'sell',
+        price: parseFloat(data.price),
+        quantity: parseFloat(data.quantity),
+        date: data.transaction_date,
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+    }
+  }, [user]);
 
-  const removeTransaction = useCallback((id: string) => {
-    setTransactions((prev) => {
-      const next = prev.filter((t) => t.id !== id);
-      localStorage.setItem('stocks_transactions', JSON.stringify(next));
-      return next;
-    });
-  }, []);
+  const removeTransaction = useCallback(async (id: string) => {
+    if (!user) return;
+    const supabase = createClient();
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    const { error } = await supabase.from('transactions').delete().eq('id', id);
+    if (error) {
+      // Re-fetch transactions on error
+      const { data } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('transaction_date', { ascending: false });
+      if (data) {
+        setTransactions(data.map((t: any) => ({
+          id: t.id,
+          symbol: t.symbol,
+          type: t.type as 'buy' | 'sell',
+          price: parseFloat(t.price),
+          quantity: parseFloat(t.quantity),
+          date: t.transaction_date,
+        })));
+      }
+    }
+  }, [user]);
 
   // Get current portfolio metrics
   const getPortfolioMetrics = useCallback(() => {
@@ -188,6 +260,13 @@ export function useStockStore() {
     };
   }, [transactions, stocks]);
 
+  const logout = useCallback(async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
+    setUserProfile(null);
+  }, []);
+
   return {
     stocks: Object.values(stocks),
     stocksMap: stocks,
@@ -200,5 +279,8 @@ export function useStockStore() {
     removeTransaction,
     getPortfolioMetrics,
     isLoaded: isClient,
+    user,
+    userProfile,
+    logout,
   };
 }

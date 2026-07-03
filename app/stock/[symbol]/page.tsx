@@ -136,20 +136,37 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   };
 
   // Handle AI analysis request
-  const handleRequestAI = () => {
+  const handleRequestAI = async () => {
     setAiLoading(true);
     setAiAnalysis(null);
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol,
+          maFast,
+          maSlow,
+          currentPrice: stock?.price || 0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.needsConfig) {
+          setAiAnalysis(`### Setup Required\n\nAI provider API key is missing. Please go to **Settings** in the sidebar to configure your AI provider and API key.`);
+        } else {
+          setAiAnalysis(`### Error\n\n${data.error || 'Failed to generate AI analysis.'}`);
+        }
+      } else {
+        setAiAnalysis(data.analysis);
+      }
+    } catch (err: any) {
+      setAiAnalysis(`### Error\n\n${err.message || 'An unexpected error occurred.'}`);
+    } finally {
       setAiLoading(false);
-      setAiAnalysis(
-        `### Technical Pattern Analysis for ${symbol}\n\n` +
-        `Based on the selected dual Moving Average parameters (**MA Fast: ${maFast}** & **MA Slow: ${maSlow}**), the model indicates:\n` +
-        `- **Trend Crossovers**: A recent Golden Cross occurred on the daily charts, showing robust short-term momentum.\n` +
-        `- **Key Support/Resistance**: Support is strong around **$${(stock?.price * 0.95).toFixed(2)}**, with immediate overhead resistance at **$${(stock?.price * 1.05).toFixed(2)}**.\n` +
-        `- **Volume Dynamics**: Above-average buying volume supports the current price trend.\n\n` +
-        `**AI Recommendation**: **ACCUMULATE** on minor pullbacks. The momentum index remains constructive.`
-      );
-    }, 2000);
+    }
   };
 
   // Add a new mock transaction

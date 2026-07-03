@@ -41,6 +41,33 @@ export default function PortfolioPage() {
     setShowAddTrade(false);
   };
 
+  const handleExportCSV = () => {
+    if (transactions.length === 0) {
+      alert('No transactions to export.');
+      return;
+    }
+    const headers = ['ID', 'Symbol', 'Type', 'Price', 'Quantity', 'Date'];
+    const rows = transactions.map((t) => [
+      t.id,
+      t.symbol,
+      t.type.toUpperCase(),
+      t.price,
+      t.quantity,
+      t.date,
+    ]);
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `portfolio_transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-8">
       {/* Header Info */}
@@ -49,12 +76,20 @@ export default function PortfolioPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">Portfolio Overview</h1>
           <p className="text-sm text-muted mt-1">Track and manage your stock logs and capital distributions</p>
         </div>
-        <button
-          onClick={() => setShowAddTrade(true)}
-          className="flex items-center gap-2 rounded-xl bg-accent-purple px-4 py-2 text-xs font-semibold text-white shadow-neon-purple hover:bg-accent-purple/90 transition-colors"
-        >
-          <Plus size={14} /> Add Transaction
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 rounded-xl border border-card-border bg-white/5 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => setShowAddTrade(true)}
+            className="flex items-center gap-2 rounded-xl bg-accent-purple px-4 py-2 text-xs font-semibold text-white shadow-neon-purple hover:bg-accent-purple/90 transition-colors"
+          >
+            <Plus size={14} /> Add Transaction
+          </button>
+        </div>
       </div>
 
       {/* Portfolio Performance Summary Widgets */}

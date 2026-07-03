@@ -20,21 +20,19 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       items: [
         { name: 'Dashboard', href: '/', icon: LayoutDashboard },
         { name: 'Portfolio & Logs', href: '/portfolio', icon: Wallet },
+        { name: 'Stock Comparison', href: '/comparison', icon: TrendingUp },
       ],
     },
     {
       title: 'TOOLS & AI',
       items: [
         { name: 'AI Analyzer', href: '/stock/AAPL', icon: BrainCircuit, badge: 'NEW' },
-        { name: 'Trending Stocks', href: '/#trending', icon: TrendingUp },
       ],
     },
     {
       title: 'UTILITIES',
       items: [
-        { name: 'Calendar', href: '#', icon: Calendar },
-        { name: 'User Profile', href: '#', icon: User },
-        { name: 'Tasks', href: '#', icon: CheckSquare },
+        { name: 'Settings', href: '/settings', icon: User },
       ],
     },
   ];
@@ -79,7 +77,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               </h3>
             )}
             <ul className="space-y-1">
-              {group.items.map((item, idx) => {
+              {group.items.map((item: any, idx) => {
                 const isActive = pathname === item.href || (item.name === 'AI Analyzer' && pathname.startsWith('/stock/'));
                 const Icon = item.icon;
 
