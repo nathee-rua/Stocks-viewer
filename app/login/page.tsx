@@ -1,30 +1,23 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Mail, Lock, User, Sparkles, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Lock, User, Sparkles, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 
 function LoginForm() {
-  const [email, setEmail] = useState('');
+  const searchParams = useSearchParams();
+  const [accountName, setAccountName] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(() => searchParams.get('error'));
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const supabase = createClient();
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    const error = searchParams.get('error');
-    if (error) {
-      setErrorMsg(error);
-    }
-  }, [searchParams]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,27 +25,40 @@ function LoginForm() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
+    const finalEmail = accountName.includes('@') ? accountName : `${accountName.trim()}@stocksviewer.local`;
+
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
+        const { data, error } = await supabase.auth.signUp({
+          email: finalEmail,
           password,
           options: {
             data: {
-              full_name: fullName || email.split('@')[0],
+              full_name: fullName.trim() || accountName.trim(),
             },
-            emailRedirectTo: `${window.location.origin}/api/auth/callback`,
           },
         });
 
         if (error) throw error;
-        setSuccessMsg('Registration successful! Please check your email for a verification link.');
-        setEmail('');
-        setPassword('');
-        setFullName('');
+
+        if (data.session) {
+          setSuccessMsg('Account created successfully! Logging you in...');
+          router.push('/');
+          router.refresh();
+        } else {
+          setSuccessMsg('Account created successfully! Logging you in...');
+          // Attempt immediate login
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: finalEmail,
+            password,
+          });
+          if (signInError) throw signInError;
+          router.push('/');
+          router.refresh();
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: finalEmail,
           password,
         });
 
@@ -60,8 +66,9 @@ function LoginForm() {
         router.push('/');
         router.refresh();
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'An error occurred during authentication.');
+    } catch (err: unknown) {
+      const error = err as Error;
+      setErrorMsg(error.message || 'An error occurred during authentication.');
     } finally {
       setLoading(false);
     }
@@ -91,7 +98,7 @@ function LoginForm() {
             </h2>
             <p className="text-xs text-muted">
               {isSignUp
-                ? 'Sign up to sync your portfolio across all devices'
+                ? 'Register with just a username and password to start tracking'
                 : 'Enter your credentials to access your financial dashboard'}
             </p>
           </div>
@@ -139,15 +146,15 @@ function LoginForm() {
             )}
 
             <div className="space-y-1">
-              <label className="text-[10px] text-muted font-medium">Email Address</label>
+              <label className="text-[10px] text-muted font-medium">Account ID / Username</label>
               <div className="relative">
-                <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+                <User size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="yourname@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="e.g. rich_investor"
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
                   className="w-full rounded-xl border border-card-border bg-white/5 pl-10 pr-4 py-2.5 text-xs text-white outline-none focus:border-accent-purple/50 focus:ring-1 focus:ring-accent-purple/30 transition-all"
                 />
               </div>

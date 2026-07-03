@@ -43,8 +43,19 @@ async function fetchAPI<T>(endpoint: string): Promise<T> {
   return res.json();
 }
 
+interface FinnhubQuote {
+  c: number;
+  d: number;
+  dp: number;
+  h: number;
+  l: number;
+  o: number;
+  pc: number;
+  t: number;
+}
+
 export async function getQuote(symbol: string): Promise<QuoteData> {
-  const data = await fetchAPI<any>(`/api/stock/quote?symbol=${encodeURIComponent(symbol)}`);
+  const data = await fetchAPI<FinnhubQuote>(`/api/stock/quote?symbol=${encodeURIComponent(symbol)}`);
   return { symbol, price: data.c, change: data.d, changePercent: data.dp, high: data.h, low: data.l, open: data.o, previousClose: data.pc, timestamp: data.t };
 }
 

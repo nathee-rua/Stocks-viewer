@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   const cacheKey = `news:${symbol.toUpperCase()}`;
-  const cached = getCached<any>(cacheKey);
+  const cached = getCached<unknown>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
@@ -39,7 +39,17 @@ export async function GET(request: Request) {
 
     const data = await response.json();
 
-    const news = (data || []).slice(0, 20).map((item: any) => ({
+    interface RawNewsItem {
+      id: number | string;
+      headline?: string;
+      summary?: string;
+      source?: string;
+      url?: string;
+      image?: string;
+      datetime?: number;
+    }
+
+    const news = ((data as RawNewsItem[]) || []).slice(0, 20).map((item) => ({
       id: item.id,
       headline: item.headline,
       summary: item.summary,
@@ -53,7 +63,7 @@ export async function GET(request: Request) {
     setCache(cacheKey, result, 600);
 
     return NextResponse.json(result);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to fetch news from Finnhub' },
       { status: 502 }

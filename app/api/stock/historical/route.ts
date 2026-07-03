@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   }
 
   const cacheKey = `historical:${symbol.toUpperCase()}:${resolution}:${from}:${to}`;
-  const cached = getCached<any>(cacheKey);
+  const cached = getCached<unknown>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     setCache(cacheKey, result, 300);
 
     return NextResponse.json(result);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to fetch historical data from Finnhub' },
       { status: 502 }

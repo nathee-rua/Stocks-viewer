@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { getHistoricalData } from '@/lib/api/apiClient';
 import { INITIAL_STOCKS } from '@/lib/stockStore';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -13,39 +13,36 @@ export default function ComparisonPage() {
   const [selectedStocks, setSelectedStocks] = useState<string[]>(['AAPL', 'TSLA']);
   const [activeStockOption, setActiveStockOption] = useState('');
 
-  // Auto-fill active stock selection dropdown with first non-selected stock
-  useEffect(() => {
-    const available = Object.keys(INITIAL_STOCKS).filter((s) => !selectedStocks.includes(s));
-    if (available.length > 0) {
-      setActiveStockOption(available[0]);
-    } else {
-      setActiveStockOption('');
-    }
-  }, [selectedStocks]);
+  const available = Object.keys(INITIAL_STOCKS).filter((s) => !selectedStocks.includes(s));
+  const currentSelectValue = activeStockOption && available.includes(activeStockOption) ? activeStockOption : (available[0] || '');
 
-  // Fetch historical data for all selected stocks
-  const queries = selectedStocks.map((symbol) => {
-    return {
-      symbol,
-      query: useQuery({
-        queryKey: ['historical-compare', symbol],
-        queryFn: () => getHistoricalData(symbol),
-        staleTime: 5 * 60 * 1000,
-        retry: 1,
-      }),
-    };
+  // Fetch historical data for all selected stocks using useQueries
+  const queriesResult = useQueries({
+    queries: selectedStocks.map((symbol) => ({
+      queryKey: ['historical-compare', symbol],
+      queryFn: () => getHistoricalData(symbol),
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
+    })),
   });
 
-  const isLoading = queries.some((q) => q.query.isLoading);
-  const isError = queries.some((q) => q.query.isError);
+  const queries = selectedStocks.map((symbol, idx) => ({
+    symbol,
+    query: queriesResult[idx],
+  }));
+
+  const isLoading = queriesResult.some((q) => q.isLoading);
+  const isError = queriesResult.some((q) => q.isError);
 
   const handleAddStock = () => {
     if (selectedStocks.length >= 4) {
       alert('You can compare a maximum of 4 stocks at a time.');
       return;
     }
-    if (activeStockOption && !selectedStocks.includes(activeStockOption)) {
-      setSelectedStocks((prev) => [...prev, activeStockOption]);
+    const symbolToAdd = activeStockOption && available.includes(activeStockOption) ? activeStockOption : available[0];
+    if (symbolToAdd) {
+      setSelectedStocks((prev) => [...prev, symbolToAdd]);
+      setActiveStockOption('');
     }
   };
 
@@ -68,11 +65,11 @@ export default function ComparisonPage() {
     const minLength = Math.min(...validQueries.map((q) => q.query.data!.length));
     if (minLength === 0) return [];
 
-    const combined: any[] = [];
+    const combined: Record<string, number | string>[] = [];
 
     // We take the last `minLength` data points to align timelines
     for (let i = 0; i < minLength; i++) {
-      const row: any = {};
+      const row: Record<string, number | string> = {};
       let time = '';
 
       validQueries.forEach((q) => {
@@ -177,20 +174,18 @@ export default function ComparisonPage() {
 
         {/* Add Stock Dropdown */}
         <div className="flex items-center gap-2">
-          {activeStockOption ? (
+          {available.length > 0 ? (
             <>
               <select
-                value={activeStockOption}
+                value={currentSelectValue}
                 onChange={(e) => setActiveStockOption(e.target.value)}
                 className="rounded-xl border border-card-border bg-sidebar px-3 py-1.5 text-xs text-white outline-none cursor-pointer"
               >
-                {Object.keys(INITIAL_STOCKS)
-                  .filter((s) => !selectedStocks.includes(s))
-                  .map((symbol) => (
-                    <option key={symbol} value={symbol}>
-                      {symbol} - {INITIAL_STOCKS[symbol].name}
-                    </option>
-                  ))}
+                {available.map((symbol) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol} - {INITIAL_STOCKS[symbol].name}
+                  </option>
+                ))}
               </select>
               <button
                 onClick={handleAddStock}
@@ -279,7 +274,10 @@ export default function ComparisonPage() {
                   }}
                   itemStyle={{ color: '#F3F4F6' }}
                   labelStyle={{ color: '#9CA3AF' }}
-                  formatter={(val: any) => [`${val > 0 ? '+' : ''}${val}%`, 'Change']}
+                  formatter={(val) => {
+                    const num = typeof val === 'number' ? val : 0;
+                    return [`${num > 0 ? '+' : ''}${num}%`, 'Change'];
+                  }}
                 />
                 <Legend iconSize={10} iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
                 {selectedStocks.map((symbol, idx) => (

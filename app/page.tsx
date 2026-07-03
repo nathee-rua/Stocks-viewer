@@ -1,17 +1,15 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { useStock } from '../context/StockContext';
 import MetricCard from '../components/MetricCard';
 import PortfolioPerformance from '../components/PortfolioPerformance';
 import DividendChart from '../components/DividendChart';
 import WatchlistWidget from '../components/WatchlistWidget';
 import Link from 'next/link';
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 export default function Home() {
-  const { stocks, stocksMap, lastUpdatedSymbol, isLoaded } = useStock();
+  const { stocks, lastUpdatedSymbol, isLoaded } = useStock();
 
   if (!isLoaded) {
     return (

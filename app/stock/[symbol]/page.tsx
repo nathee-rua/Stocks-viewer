@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Sparkles, BrainCircuit, Activity, LineChart as ChartIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Sparkles, BrainCircuit, Activity, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { useStock } from '@/context/StockContext';
-import { generateHistoricalData, runMABacktest, MOCK_NEWS } from '@/lib/stockStore';
+import { generateHistoricalData, runMABacktest, MOCK_NEWS, HistoricalCandle } from '@/lib/stockStore';
 import { getHistoricalData, getNews } from '@/lib/api/apiClient';
 import TradingViewChart from '@/components/TradingViewChart';
 
-type Tab = 'overview' | 'transactions' | 'ai';
+type Tab = 'overview' | 'transactions' | 'ai' | 'backtest';
 
 interface FundamentalMetric {
   label: string;
@@ -77,6 +77,9 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   const [maFast, setMaFast] = useState(12);
   const [maSlow, setMaSlow] = useState(26);
   const [backtestRun, setBacktestRun] = useState(false);
+  const [showFastMA, setShowFastMA] = useState(true);
+  const [showSlowMA, setShowSlowMA] = useState(true);
+  const [showSignals, setShowSignals] = useState(true);
   
   // Transaction input state
   const [showAddTrade, setShowAddTrade] = useState(false);
@@ -89,15 +92,21 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
 
   // Fetch real historical data from API, fallback to mock
-  const { data: apiHistorical, isLoading: chartLoading } = useQuery({
+  const { data: apiHistorical } = useQuery({
     queryKey: ['historical', symbol],
     queryFn: () => getHistoricalData(symbol),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
-  const historicalData = useMemo(() => {
-    if (apiHistorical && apiHistorical.length > 0) return apiHistorical;
+  const historicalData = useMemo<HistoricalCandle[]>(() => {
+    if (apiHistorical && apiHistorical.length > 0) {
+      return apiHistorical.map(candle => ({
+        ...candle,
+        value: candle.close,
+        volume: candle.volume ?? 0
+      }));
+    }
     return generateHistoricalData(symbol, 250); // Fallback to mock
   }, [apiHistorical, symbol]);
 
@@ -162,8 +171,9 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
       } else {
         setAiAnalysis(data.analysis);
       }
-    } catch (err: any) {
-      setAiAnalysis(`### Error\n\n${err.message || 'An unexpected error occurred.'}`);
+    } catch (err: unknown) {
+      const error = err as Error;
+      setAiAnalysis(`### Error\n\n${error.message || 'An unexpected error occurred.'}`);
     } finally {
       setAiLoading(false);
     }
@@ -281,9 +291,9 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
           {/* Interactive TradingView Chart */}
           <TradingViewChart
             data={updatedHistoricalData}
-            maFastData={backtestResults?.maFastValues}
-            maSlowData={backtestResults?.maSlowValues}
-            signals={backtestResults?.signals}
+            maFastData={showFastMA ? backtestResults?.maFastValues : []}
+            maSlowData={showSlowMA ? backtestResults?.maSlowValues : []}
+            signals={showSignals ? backtestResults?.signals : []}
           />
 
           {/* Dual MA Backtest Controls */}
@@ -337,6 +347,39 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
               </div>
             </div>
 
+            {/* Chart Overlays Toggles */}
+            <div className="flex flex-wrap gap-6 pt-3 border-t border-card-border/30">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-muted hover:text-white transition-colors">
+                <input
+                  type="checkbox"
+                  checked={showFastMA}
+                  onChange={(e) => setShowFastMA(e.target.checked)}
+                  className="rounded border-card-border text-accent-purple focus:ring-0 cursor-pointer accent-accent-purple"
+                />
+                Show Fast MA (Purple)
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-muted hover:text-white transition-colors">
+                <input
+                  type="checkbox"
+                  checked={showSlowMA}
+                  onChange={(e) => setShowSlowMA(e.target.checked)}
+                  className="rounded border-card-border text-yellow-500 focus:ring-0 cursor-pointer accent-yellow-500"
+                />
+                Show Slow MA (Yellow)
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-muted hover:text-white transition-colors">
+                <input
+                  type="checkbox"
+                  checked={showSignals}
+                  onChange={(e) => setShowSignals(e.target.checked)}
+                  className="rounded border-card-border text-accent-green focus:ring-0 cursor-pointer accent-up"
+                />
+                Show Buy/Sell Arrows
+              </label>
+            </div>
+
             <button
               onClick={handleRunBacktest}
               className="w-full py-2.5 rounded-xl border border-accent-purple/20 bg-accent-purple/10 text-xs font-semibold text-accent-purple hover:bg-accent-purple hover:text-white shadow-sm transition-all"
@@ -353,30 +396,38 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
                   exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="grid grid-cols-3 gap-4 border-t border-card-border pt-4 mt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 border-t border-card-border pt-4 mt-2">
                     <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
                       <p className="text-[10px] text-muted">Total Return</p>
-                      <p
-                        className={`text-lg font-bold mt-1 ${
-                          backtestResults.totalReturn >= 0 ? 'text-up' : 'text-down'
-                        }`}
-                      >
-                        {backtestResults.totalReturn >= 0 ? '+' : ''}
-                        {backtestResults.totalReturn}%
+                      <p className={`text-base font-bold mt-1 ${backtestResults.totalReturn >= 0 ? 'text-up' : 'text-down'}`}>
+                        {backtestResults.totalReturn >= 0 ? '+' : ''}{backtestResults.totalReturn}%
                       </p>
                     </div>
 
                     <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
                       <p className="text-[10px] text-muted">Win Rate</p>
-                      <p className="text-lg font-bold text-accent-purple mt-1">
-                        {backtestResults.winRate}%
-                      </p>
+                      <p className="text-base font-bold text-accent-purple mt-1">{backtestResults.winRate}%</p>
                     </div>
 
                     <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
                       <p className="text-[10px] text-muted">Total Trades</p>
-                      <p className="text-lg font-bold text-white mt-1">
-                        {backtestResults.numTrades}
+                      <p className="text-base font-bold text-white mt-1">{backtestResults.numTrades}</p>
+                    </div>
+
+                    <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
+                      <p className="text-[10px] text-muted">Max Drawdown</p>
+                      <p className="text-base font-bold text-red-400 mt-1">-{backtestResults.maxDrawdown}%</p>
+                    </div>
+
+                    <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
+                      <p className="text-[10px] text-muted">Profit Factor</p>
+                      <p className="text-base font-bold text-green-400 mt-1">{backtestResults.profitFactor}x</p>
+                    </div>
+
+                    <div className="text-center rounded-xl bg-white/[0.02] border border-card-border/50 p-3">
+                      <p className="text-[10px] text-muted">Avg Trade Return</p>
+                      <p className={`text-base font-bold mt-1 ${backtestResults.avgTradeReturn >= 0 ? 'text-up' : 'text-down'}`}>
+                        {backtestResults.avgTradeReturn >= 0 ? '+' : ''}{backtestResults.avgTradeReturn}%
                       </p>
                     </div>
                   </div>
@@ -388,7 +439,7 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
           {/* Navigation Tabs Area */}
           <div className="space-y-4">
             <div className="flex border-b border-card-border gap-6">
-              {(['overview', 'transactions', 'ai'] as Tab[]).map((tab) => (
+              {(['overview', 'transactions', 'ai', ...(backtestResults ? ['backtest'] : [])] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -418,14 +469,14 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {(apiNews && apiNews.length > 0 ? apiNews : mockNews).map((item: any, idx: number) => {
+                      {(apiNews && apiNews.length > 0 ? apiNews : mockNews).map((item: { id?: string | number; title?: string; headline?: string; summary?: string; source: string; time?: string; datetime?: number; url?: string }, idx: number) => {
                         // Handle both API and mock news formats
                         const isAPI = !!item.headline;
                         const title = isAPI ? item.headline : item.title;
                         const summary = isAPI ? item.summary : item.summary;
                         const source = item.source;
                         const timeStr = isAPI
-                          ? new Date(item.datetime * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                          ? new Date((item.datetime ?? 0) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                           : item.time;
                         const url = item.url || '#';
                         const key = isAPI ? item.id : (item.id || idx);
@@ -555,6 +606,47 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'backtest' && backtestResults && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-white tracking-wide">Strategy Simulated Trades Log</h3>
+                  {backtestResults.trades.length === 0 ? (
+                    <p className="text-xs text-muted">No trades completed for the given MA periods.</p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-card-border bg-sidebar/30">
+                      <table className="w-full text-left border-collapse text-xs md:text-sm">
+                        <thead>
+                          <tr className="bg-sidebar/55 border-b border-card-border text-muted">
+                            <th className="p-3">#</th>
+                            <th className="p-3">Entry Date</th>
+                            <th className="p-3">Exit Date</th>
+                            <th className="p-3">Buy Price</th>
+                            <th className="p-3">Sell Price</th>
+                            <th className="p-3">Return (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-card-border">
+                          {backtestResults.trades.map((trade, idx) => {
+                            const isProfit = trade.profitPercent >= 0;
+                            return (
+                              <tr key={idx} className="hover:bg-white/[0.01] transition-colors">
+                                <td className="p-3 text-muted">{idx + 1}</td>
+                                <td className="p-3 font-semibold text-white">{trade.entryTime}</td>
+                                <td className="p-3 font-semibold text-white">{trade.exitTime}</td>
+                                <td className="p-3 text-muted">${trade.entryPrice.toFixed(2)}</td>
+                                <td className="p-3 text-muted">${trade.exitPrice.toFixed(2)}</td>
+                                <td className={`p-3 font-semibold ${isProfit ? 'text-up' : 'text-down'}`}>
+                                  {isProfit ? '+' : ''}{trade.profitPercent}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

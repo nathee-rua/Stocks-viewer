@@ -21,11 +21,10 @@ export default function PortfolioPerformance() {
     const generateTrend = (steps: number, labels: string[]) => {
       const trend: { name: string; value: number }[] = [];
       const diff = activeValue - baseValue;
-      
       for (let i = 0; i < steps; i++) {
-        // Linear interpolation with a bit of random wiggle for realistic charts
+        // Linear interpolation with a bit of deterministic wiggle for realistic stable charts
         const progress = i / (steps - 1);
-        const wiggle = steps > 1 && i < steps - 1 ? (Math.random() - 0.5) * (baseValue * 0.03) : 0;
+        const wiggle = steps > 1 && i < steps - 1 ? Math.sin(i * 1.7) * (baseValue * 0.015) : 0;
         const val = baseValue + diff * progress + wiggle;
         trend.push({
           name: labels[i],
@@ -113,7 +112,10 @@ export default function PortfolioPerformance() {
                 color: '#fff',
                 fontSize: '12px',
               }}
-              formatter={(val: any) => [`$${val.toLocaleString()}`, 'Portfolio Value']}
+              formatter={(val) => {
+                const num = typeof val === 'number' ? val : 0;
+                return [`$${num.toLocaleString()}`, 'Portfolio Value'];
+              }}
               labelStyle={{ color: '#9CA3AF', fontWeight: 'bold' }}
             />
             <Area

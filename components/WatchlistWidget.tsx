@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Plus, X, ArrowUpRight, ArrowDownRight, Eye } from 'lucide-react';
+import { Plus, X, Eye } from 'lucide-react';
 import { useStock } from '../context/StockContext';
 import { INITIAL_STOCKS } from '../lib/stockStore';
 

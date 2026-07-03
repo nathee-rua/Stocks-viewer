@@ -11,19 +11,40 @@ import { usePathname, useRouter } from 'next/navigation';
 
 function MainLayoutContent({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isRedirectingAuth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return !!params.get('code');
+    }
+    return false;
+  });
+
   const pathname = usePathname();
   const router = useRouter();
   const { user, isLoaded } = useStock();
 
   const isAuthPage = pathname === '/login';
 
+  // Check for Supabase auth code in query parameters to handle verification redirects
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      if (code) {
+        const next = params.get('next') ?? '/';
+        window.location.href = `/api/auth/callback?code=${code}&next=${encodeURIComponent(next)}`;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isRedirectingAuth) return;
     if (isLoaded && !user && !isAuthPage) {
       router.push('/login');
     }
-  }, [user, isLoaded, pathname, router, isAuthPage]);
+  }, [user, isLoaded, pathname, router, isAuthPage, isRedirectingAuth]);
 
-  if (!isLoaded) {
+  if (!isLoaded || isRedirectingAuth) {
     return (
       <div className="flex min-h-screen bg-background items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-accent-purple border-t-transparent" />

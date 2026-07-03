@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   const cacheKey = `quote:${symbol.toUpperCase()}`;
-  const cached = getCached<any>(cacheKey);
+  const cached = getCached<unknown>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     setCache(cacheKey, data, 60);
 
     return NextResponse.json(data);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to fetch quote from Finnhub' },
       { status: 502 }

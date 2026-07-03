@@ -60,8 +60,9 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json({ analysis });
-  } catch (error: any) {
-    console.error('AI Analysis Error:', error);
-    return NextResponse.json({ error: error.message || 'An error occurred during AI analysis' }, { status: 500 });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('AI Analysis Error:', err);
+    return NextResponse.json({ error: err.message || 'An error occurred during AI analysis' }, { status: 500 });
   }
 }

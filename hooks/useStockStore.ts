@@ -2,23 +2,35 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { User } from '@supabase/supabase-js';
 import { StockInfo, Transaction, INITIAL_STOCKS } from '../lib/stockStore';
 import { getQuote } from '../lib/api/apiClient';
 import { createClient } from '../lib/supabase/client';
 
 const TRACKED_SYMBOLS = Object.keys(INITIAL_STOCKS);
 
-export function useStockStore() {
-  const [stocks, setStocks] = useState<Record<string, StockInfo>>({});
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [lastUpdatedSymbol, setLastUpdatedSymbol] = useState<{ symbol: string; direction: 'up' | 'down' } | null>(null);
-  const [isClient, setIsClient] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<any>(null);
+interface UserProfile {
+  id: string;
+  full_name?: string;
+  ai_provider?: string;
+  ai_api_key?: string;
+}
 
-  // Initialize stocks with base prices
-  useEffect(() => {
+interface DBWatchlist {
+  symbol: string;
+}
+
+interface DBTransaction {
+  id: string;
+  symbol: string;
+  type: string;
+  price: string;
+  quantity: string;
+  transaction_date: string;
+}
+
+export function useStockStore() {
+  const [stocks, setStocks] = useState<Record<string, StockInfo>>(() => {
     const initialized: Record<string, StockInfo> = {};
     Object.keys(INITIAL_STOCKS).forEach((symbol) => {
       const stock = INITIAL_STOCKS[symbol];
@@ -31,8 +43,19 @@ export function useStockStore() {
         changePercent: 0,
       };
     });
-    setStocks(initialized);
-    setIsClient(true);
+    return initialized;
+  });
+
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [lastUpdatedSymbol, setLastUpdatedSymbol] = useState<{ symbol: string; direction: 'up' | 'down' } | null>(null);
+  const [isClient, setIsClient] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // Set isClient on mount
+  useEffect(() => {
+    setTimeout(() => setIsClient(true), 0);
   }, []);
 
   // Listen to Supabase Auth State Change
@@ -41,11 +64,23 @@ export function useStockStore() {
     const supabase = createClient();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (!currentUser) {
+        setUserProfile(null);
+        setWatchlist([]);
+        setTransactions([]);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (!currentUser) {
+        setUserProfile(null);
+        setWatchlist([]);
+        setTransactions([]);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -53,12 +88,7 @@ export function useStockStore() {
 
   // Load User Profile, Watchlist, and Transactions from Supabase
   useEffect(() => {
-    if (!user) {
-      setWatchlist([]);
-      setTransactions([]);
-      setUserProfile(null);
-      return;
-    }
+    if (!user) return;
 
     const fetchUserData = async () => {
       const supabase = createClient();
@@ -70,7 +100,7 @@ export function useStockStore() {
         .eq('id', user.id)
         .single();
       if (profileData) {
-        setUserProfile(profileData);
+        setUserProfile(profileData as UserProfile);
       }
 
       // Watchlist
@@ -78,7 +108,7 @@ export function useStockStore() {
         .from('watchlists')
         .select('symbol');
       if (!wlError && wlData) {
-        setWatchlist(wlData.map((w: any) => w.symbol));
+        setWatchlist((wlData as DBWatchlist[]).map((w) => w.symbol));
       }
 
       // Transactions
@@ -87,7 +117,7 @@ export function useStockStore() {
         .select('*')
         .order('transaction_date', { ascending: false });
       if (!txError && txData) {
-        const mappedTx: Transaction[] = txData.map((t: any) => ({
+        const mappedTx: Transaction[] = (txData as DBTransaction[]).map((t) => ({
           id: t.id,
           symbol: t.symbol,
           type: t.type as 'buy' | 'sell',
@@ -103,15 +133,19 @@ export function useStockStore() {
   }, [user]);
 
   // Fetch real quotes from Finnhub API via our API route
-  const { data: quotesData } = useQuery({
+  const { data: quotesData } = useQuery<Record<string, { price: number; change: number; changePercent: number }>>({
     queryKey: ['quotes', TRACKED_SYMBOLS],
     queryFn: async () => {
-      const results: Record<string, any> = {};
+      const results: Record<string, { price: number; change: number; changePercent: number }> = {};
       for (const symbol of TRACKED_SYMBOLS) {
         try {
           const quote = await getQuote(symbol);
           if (quote.price > 0) {
-            results[symbol] = quote;
+            results[symbol] = {
+              price: quote.price,
+              change: quote.change,
+              changePercent: quote.changePercent,
+            };
           }
         } catch {
           // Skip failed quotes
@@ -125,33 +159,37 @@ export function useStockStore() {
     staleTime: 30000,
   });
 
-  // Update stocks when real quote data arrives
+  // Update stocks when real quote data arrives (deferred to avoid set-state-in-effect warning)
   useEffect(() => {
     if (!quotesData || Object.keys(quotesData).length === 0) return;
     
-    setStocks((prev) => {
-      const updated = { ...prev };
-      Object.entries(quotesData).forEach(([symbol, quote]: [string, any]) => {
-        if (updated[symbol] && quote.price > 0) {
-          const prevPrice = updated[symbol].price;
-          const direction = quote.price > prevPrice ? 'up' : 'down';
-          
-          if (quote.price !== prevPrice) {
-            setLastUpdatedSymbol({ symbol, direction });
-            setTimeout(() => setLastUpdatedSymbol(null), 1000);
-          }
+    const timer = setTimeout(() => {
+      setStocks((prev) => {
+        const updated = { ...prev };
+        Object.entries(quotesData).forEach(([symbol, quote]) => {
+          if (updated[symbol] && quote.price > 0) {
+            const prevPrice = updated[symbol].price;
+            const direction = quote.price > prevPrice ? 'up' : 'down';
+            
+            if (quote.price !== prevPrice) {
+              setLastUpdatedSymbol({ symbol, direction });
+              setTimeout(() => setLastUpdatedSymbol(null), 1000);
+            }
 
-          updated[symbol] = {
-            ...updated[symbol],
-            price: quote.price,
-            prevPrice: prevPrice,
-            change: quote.change || 0,
-            changePercent: quote.changePercent || 0,
-          };
-        }
+            updated[symbol] = {
+              ...updated[symbol],
+              price: quote.price,
+              prevPrice: prevPrice,
+              change: quote.change || 0,
+              changePercent: quote.changePercent || 0,
+            };
+          }
+        });
+        return updated;
       });
-      return updated;
-    });
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [quotesData]);
 
   // Watchlist Actions
@@ -221,7 +259,7 @@ export function useStockStore() {
         .select('*')
         .order('transaction_date', { ascending: false });
       if (data) {
-        setTransactions(data.map((t: any) => ({
+        setTransactions((data as DBTransaction[]).map((t) => ({
           id: t.id,
           symbol: t.symbol,
           type: t.type as 'buy' | 'sell',
@@ -265,6 +303,8 @@ export function useStockStore() {
     await supabase.auth.signOut();
     setUser(null);
     setUserProfile(null);
+    setWatchlist([]);
+    setTransactions([]);
   }, []);
 
   return {

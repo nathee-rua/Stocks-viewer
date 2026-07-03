@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, TrendingUp, Wallet, BrainCircuit, Calendar, User, CheckSquare, ChevronRight, Menu as MenuIcon } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, Wallet, BrainCircuit, User, ChevronRight, Menu as MenuIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface SidebarProps {
@@ -77,7 +77,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               </h3>
             )}
             <ul className="space-y-1">
-              {group.items.map((item: any, idx) => {
+              {group.items.map((item: { name: string; href: string; icon: React.ComponentType<{ size?: number; className?: string }>; badge?: string }, idx) => {
                 const isActive = pathname === item.href || (item.name === 'AI Analyzer' && pathname.startsWith('/stock/'));
                 const Icon = item.icon;
 

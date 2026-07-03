@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   }
 
   const cacheKey = `search:${query.toLowerCase()}`;
-  const cached = getCached<any>(cacheKey);
+  const cached = getCached<unknown>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
   }
@@ -32,10 +32,16 @@ export async function GET(request: Request) {
 
     const data = await response.json();
 
-    const results = (data.result || [])
-      .filter((item: any) => item.type === 'Common Stock')
+    interface RawSearchItem {
+      symbol: string;
+      description: string;
+      type: string;
+    }
+
+    const results = ((data.result as RawSearchItem[]) || [])
+      .filter((item) => item.type === 'Common Stock')
       .slice(0, 10)
-      .map((item: any) => ({
+      .map((item) => ({
         symbol: item.symbol,
         description: item.description,
       }));
@@ -44,7 +50,7 @@ export async function GET(request: Request) {
     setCache(cacheKey, result, 600);
 
     return NextResponse.json(result);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to fetch search results from Finnhub' },
       { status: 502 }

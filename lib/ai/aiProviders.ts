@@ -122,7 +122,7 @@ export const AI_PROVIDERS: Record<string, AIProvider> = {
   ollama: {
     id: 'ollama',
     name: 'Ollama (Localhost)',
-    async generateAnalysis(symbol, maFast, maSlow, currentPrice, _apiKey) {
+    async generateAnalysis(symbol, maFast, maSlow, currentPrice) {
       // Ollama runs locally, we connect to local server
       const res = await fetch('http://localhost:11434/api/generate', {
         method: 'POST',

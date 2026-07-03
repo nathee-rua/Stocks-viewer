@@ -144,7 +144,7 @@ export default function PortfolioPage() {
         {transactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted">
             <Wallet size={36} className="mb-2 opacity-50" />
-            <p className="text-sm">You haven't logged any trades yet.</p>
+            <p className="text-sm">You haven&apos;t logged any trades yet.</p>
             <button
               onClick={() => setShowAddTrade(true)}
               className="mt-3 text-xs text-accent-purple hover:underline"

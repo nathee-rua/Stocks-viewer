@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';

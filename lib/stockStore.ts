@@ -24,6 +24,30 @@ export interface BacktestSignal {
   price: number;
 }
 
+export interface HistoricalCandle {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  value: number;
+  volume: number;
+}
+
+export interface BacktestChartItem extends HistoricalCandle {
+  maFast: number | null;
+  maSlow: number | null;
+}
+
+export interface BacktestTrade {
+  entryTime: string;
+  exitTime: string;
+  type: 'long';
+  entryPrice: number;
+  exitPrice: number;
+  profitPercent: number;
+}
+
 export interface BacktestResult {
   totalReturn: number;
   winRate: number;
@@ -31,7 +55,11 @@ export interface BacktestResult {
   signals: BacktestSignal[];
   maFastValues: { time: string; value: number }[];
   maSlowValues: { time: string; value: number }[];
-  chartData: any[];
+  chartData: BacktestChartItem[];
+  maxDrawdown: number;
+  profitFactor: number;
+  avgTradeReturn: number;
+  trades: BacktestTrade[];
 }
 
 export interface NewsItem {
@@ -90,12 +118,12 @@ export const INITIAL_STOCKS: Record<string, Omit<StockInfo, 'price' | 'change' |
 };
 
 // Generate OHLCV historical data for the last 300 days
-export function generateHistoricalData(symbol: string, days: number = 300): any[] {
+export function generateHistoricalData(symbol: string, days: number = 300): HistoricalCandle[] {
   const stock = INITIAL_STOCKS[symbol];
   if (!stock) return [];
   
   let basePrice = stock.sparkline[stock.sparkline.length - 1];
-  const data: any[] = [];
+  const data: HistoricalCandle[] = [];
   const today = new Date();
   
   for (let i = days; i >= 0; i--) {
@@ -131,8 +159,8 @@ export function generateHistoricalData(symbol: string, days: number = 300): any[
 }
 
 // Interactive MA Backtest Engine
-export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlowPeriod: number): BacktestResult {
-  const calculateMA = (data: any[], period: number): number[] => {
+export function runMABacktest(historicalData: HistoricalCandle[], maFastPeriod: number, maSlowPeriod: number): BacktestResult {
+  const calculateMA = (data: HistoricalCandle[], period: number): number[] => {
     const ma: number[] = [];
     for (let i = 0; i < data.length; i++) {
       if (i < period - 1) {
@@ -154,15 +182,23 @@ export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlo
   const signals: BacktestSignal[] = [];
   const maFastValues: { time: string; value: number }[] = [];
   const maSlowValues: { time: string; value: number }[] = [];
-  const chartData: any[] = [];
+  const chartData: BacktestChartItem[] = [];
   
   let position: 'none' | 'long' = 'none';
   let totalReturn = 0;
   let capital = 10000; // Starting capital
-  let initialCapital = capital;
+  const initialCapital = capital;
   let numTrades = 0;
   let winningTrades = 0;
   let buyPrice = 0;
+  let buyTime = '';
+
+  const trades: BacktestTrade[] = [];
+  let peakCapital = initialCapital;
+  let maxDrawdown = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
+  let totalTradeReturnsSum = 0;
 
   for (let i = 0; i < historicalData.length; i++) {
     const item = historicalData[i];
@@ -187,6 +223,7 @@ export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlo
       if (prevFast <= prevSlow && fastVal > slowVal && position === 'none') {
         position = 'long';
         buyPrice = item.close;
+        buyTime = item.time;
         signals.push({
           time: item.time,
           type: 'buy',
@@ -198,10 +235,27 @@ export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlo
         position = 'none';
         numTrades++;
         const tradeReturn = (item.close - buyPrice) / buyPrice;
+        const initialTradeCapital = capital;
         capital += capital * tradeReturn;
+        const profitAmount = capital - initialTradeCapital;
         
-        if (tradeReturn > 0) winningTrades++;
-        
+        if (profitAmount > 0) {
+          winningTrades++;
+          grossProfit += profitAmount;
+        } else {
+          grossLoss += Math.abs(profitAmount);
+        }
+        totalTradeReturnsSum += tradeReturn * 100;
+
+        trades.push({
+          entryTime: buyTime,
+          exitTime: item.time,
+          type: 'long',
+          entryPrice: buyPrice,
+          exitPrice: item.close,
+          profitPercent: parseFloat((tradeReturn * 100).toFixed(2)),
+        });
+
         signals.push({
           time: item.time,
           type: 'sell',
@@ -209,19 +263,54 @@ export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlo
         });
       }
     }
+
+    // Keep track of peak capital and drawdown
+    let currentEquity = capital;
+    if (position === 'long') {
+      const currentReturn = (item.close - buyPrice) / buyPrice;
+      currentEquity = capital + capital * currentReturn;
+    }
+    if (currentEquity > peakCapital) {
+      peakCapital = currentEquity;
+    }
+    const drawdown = peakCapital > 0 ? (peakCapital - currentEquity) / peakCapital : 0;
+    if (drawdown > maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
   }
 
   // Handle open position at the end
   if (position === 'long') {
     const finalClose = historicalData[historicalData.length - 1].close;
+    const finalTime = historicalData[historicalData.length - 1].time;
     numTrades++;
     const tradeReturn = (finalClose - buyPrice) / buyPrice;
+    const initialTradeCapital = capital;
     capital += capital * tradeReturn;
-    if (tradeReturn > 0) winningTrades++;
+    const profitAmount = capital - initialTradeCapital;
+    
+    if (profitAmount > 0) {
+      winningTrades++;
+      grossProfit += profitAmount;
+    } else {
+      grossLoss += Math.abs(profitAmount);
+    }
+    totalTradeReturnsSum += tradeReturn * 100;
+
+    trades.push({
+      entryTime: buyTime,
+      exitTime: finalTime,
+      type: 'long',
+      entryPrice: buyPrice,
+      exitPrice: finalClose,
+      profitPercent: parseFloat((tradeReturn * 100).toFixed(2)),
+    });
   }
 
   totalReturn = ((capital - initialCapital) / initialCapital) * 100;
   const winRate = numTrades > 0 ? (winningTrades / numTrades) * 100 : 0;
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.9 : 0;
+  const avgTradeReturn = numTrades > 0 ? totalTradeReturnsSum / numTrades : 0;
 
   return {
     totalReturn: parseFloat(totalReturn.toFixed(2)),
@@ -231,6 +320,10 @@ export function runMABacktest(historicalData: any[], maFastPeriod: number, maSlo
     maFastValues,
     maSlowValues,
     chartData,
+    maxDrawdown: parseFloat((maxDrawdown * 100).toFixed(2)),
+    profitFactor: parseFloat(profitFactor.toFixed(2)),
+    avgTradeReturn: parseFloat(avgTradeReturn.toFixed(2)),
+    trades,
   };
 }
 
