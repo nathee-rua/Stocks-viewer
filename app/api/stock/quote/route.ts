@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCached, setCache } from '@/lib/api/cache';
+import { createClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -18,9 +19,27 @@ export async function GET(request: Request) {
     return NextResponse.json(cached);
   }
 
+  let token = process.env.FINNHUB_API_KEY || '';
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('stock_api_key')
+        .eq('id', user.id)
+        .single();
+      if (profile?.stock_api_key) {
+        token = profile.stock_api_key;
+      }
+    }
+  } catch {
+    // Fall back
+  }
+
   try {
     const response = await fetch(
-      `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${process.env.FINNHUB_API_KEY}`
+      `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${token}`
     );
 
     if (!response.ok) {

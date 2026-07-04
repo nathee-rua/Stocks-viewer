@@ -20,7 +20,15 @@ export default function ComparisonPage() {
   const queriesResult = useQueries({
     queries: selectedStocks.map((symbol) => ({
       queryKey: ['historical-compare', symbol],
-      queryFn: () => getHistoricalData(symbol),
+      queryFn: async () => {
+        try {
+          return await getHistoricalData(symbol);
+        } catch (err) {
+          console.warn(`Failed to fetch historical data for ${symbol}, falling back to mock data`, err);
+          const { generateHistoricalData } = await import('@/lib/stockStore');
+          return generateHistoricalData(symbol, 250);
+        }
+      },
       staleTime: 5 * 60 * 1000,
       retry: 1,
     })),

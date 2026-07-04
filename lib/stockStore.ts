@@ -115,14 +115,52 @@ export const INITIAL_STOCKS: Record<string, Omit<StockInfo, 'price' | 'change' |
     logo: '🍃',
     sparkline: [22, 21, 23, 24, 23.5, 25, 26, 25.8, 27, 28, 27.5, 28.30],
   },
+  SET: {
+    symbol: 'SET',
+    name: 'SET Index (Thailand)',
+    logo: '🇹🇭',
+    sparkline: [1380, 1390, 1375, 1400, 1410, 1395, 1420, 1430, 1425, 1440, 1450, 1460.50],
+  },
+  PTT: {
+    symbol: 'PTT',
+    name: 'PTT Public Company Limited',
+    logo: '⛽',
+    sparkline: [32, 33, 32.5, 34, 34.5, 33.5, 35, 35.5, 35, 36, 36.5, 37.0],
+  },
+  CPALL: {
+    symbol: 'CPALL',
+    name: 'CP ALL Public Company Limited',
+    logo: '🏪',
+    sparkline: [55, 56, 55.5, 57, 58, 57.5, 59, 60, 59.5, 61, 62, 62.50],
+  },
+  BDMS: {
+    symbol: 'BDMS',
+    name: 'Bangkok Dusit Medical Services',
+    logo: '🏥',
+    sparkline: [26, 27, 26.5, 28, 27.8, 28.5, 29, 29.5, 29.2, 30, 30.5, 30.80],
+  },
+  AOT: {
+    symbol: 'AOT',
+    name: 'Airports of Thailand',
+    logo: '✈️',
+    sparkline: [60, 61, 59.5, 62, 63, 62, 64, 65, 64.5, 66, 67, 68.0],
+  },
 };
 
 // Generate OHLCV historical data for the last 300 days
 export function generateHistoricalData(symbol: string, days: number = 300): HistoricalCandle[] {
   const stock = INITIAL_STOCKS[symbol];
-  if (!stock) return [];
-  
-  let basePrice = stock.sparkline[stock.sparkline.length - 1];
+  let basePrice = 100;
+  if (stock) {
+    basePrice = stock.sparkline[stock.sparkline.length - 1];
+  } else {
+    // Generate deterministic base price from symbol name hash
+    let hash = 0;
+    for (let i = 0; i < symbol.length; i++) {
+      hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    basePrice = 50 + Math.abs(hash % 250);
+  }
   const data: HistoricalCandle[] = [];
   const today = new Date();
   

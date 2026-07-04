@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Sparkles, BrainCircuit, Activity, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -72,6 +72,16 @@ export default function StockDetailPage({ params }: { params: Promise<{ symbol: 
   
   // Tabs
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab') as Tab;
+      if (tab && ['overview', 'transactions', 'ai', 'backtest'].includes(tab)) {
+        setActiveTab(tab);
+      }
+    }
+  }, []);
   
   // Backtest state
   const [maFast, setMaFast] = useState(12);

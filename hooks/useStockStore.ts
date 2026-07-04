@@ -50,6 +50,7 @@ export function useStockStore() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lastUpdatedSymbol, setLastUpdatedSymbol] = useState<{ symbol: string; direction: 'up' | 'down' } | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
@@ -71,6 +72,7 @@ export function useStockStore() {
         setWatchlist([]);
         setTransactions([]);
       }
+      setAuthLoaded(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -81,6 +83,7 @@ export function useStockStore() {
         setWatchlist([]);
         setTransactions([]);
       }
+      setAuthLoaded(true);
     });
 
     return () => subscription.unsubscribe();
@@ -318,7 +321,7 @@ export function useStockStore() {
     addTransaction,
     removeTransaction,
     getPortfolioMetrics,
-    isLoaded: isClient,
+    isLoaded: isClient && authLoaded,
     user,
     userProfile,
     logout,

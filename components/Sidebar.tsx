@@ -26,7 +26,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     {
       title: 'TOOLS & AI',
       items: [
-        { name: 'AI Analyzer', href: '/stock/AAPL', icon: BrainCircuit, badge: 'NEW' },
+        { name: 'AI Analyzer', href: '/stock/AAPL?tab=ai', icon: BrainCircuit, badge: 'NEW' },
       ],
     },
     {
