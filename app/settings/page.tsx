@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useStock } from '@/context/StockContext';
 import { createClient } from '@/lib/supabase/client';
-import { User, Settings, Save, ShieldAlert, Sparkles, Key, CheckCircle, AlertCircle, FileSpreadsheet, Loader2, Activity } from 'lucide-react';
+import { INITIAL_STOCKS } from '@/lib/stockStore';
+import { User, Settings, Save, ShieldAlert, Sparkles, Key, CheckCircle, AlertCircle, FileSpreadsheet, Loader2, Activity, Trash2, Bell, Plus } from 'lucide-react';
 
 interface ProfileData {
   id: string;
@@ -11,6 +12,8 @@ interface ProfileData {
   ai_provider?: string;
   ai_api_key?: string;
   stock_api_key?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
 }
 
 interface UserData {
@@ -24,10 +27,14 @@ interface ProfileFormProps {
 }
 
 function ProfileForm({ userProfile, user }: ProfileFormProps) {
+  const { alerts, addAlert, removeAlert } = useStock();
+
   const [fullName, setFullName] = useState(userProfile.full_name || '');
   const [aiProvider, setAiProvider] = useState(userProfile.ai_provider || 'openai');
   const [aiApiKey, setAiApiKey] = useState(userProfile.ai_api_key || '');
   const [stockApiKey, setStockApiKey] = useState(userProfile.stock_api_key || '');
+  const [telegramBotToken, setTelegramBotToken] = useState(userProfile.telegram_bot_token || '');
+  const [telegramChatId, setTelegramChatId] = useState(userProfile.telegram_chat_id || '');
   
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -36,8 +43,16 @@ function ProfileForm({ userProfile, user }: ProfileFormProps) {
   // Testing states
   const [testingStock, setTestingStock] = useState(false);
   const [testingAi, setTestingAi] = useState(false);
+  const [testingTelegram, setTestingTelegram] = useState(false);
   const [stockTestResult, setStockTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [telegramTestResult, setTelegramTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Alert form states
+  const [alertSymbol, setAlertSymbol] = useState('SET');
+  const [alertType, setAlertType] = useState<'price_above' | 'price_below' | 'percent_above' | 'percent_below'>('price_above');
+  const [alertValue, setAlertValue] = useState('');
+  const [alertError, setAlertError] = useState<string | null>(null);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,6 +71,8 @@ function ProfileForm({ userProfile, user }: ProfileFormProps) {
           ai_provider: aiProvider,
           ai_api_key: aiApiKey,
           stock_api_key: stockApiKey,
+          telegram_bot_token: telegramBotToken,
+          telegram_chat_id: telegramChatId,
         })
         .eq('id', user.id);
 
@@ -69,6 +86,52 @@ function ProfileForm({ userProfile, user }: ProfileFormProps) {
       setErrorMsg(error.message || 'Failed to save settings.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    if (!telegramBotToken || !telegramChatId) {
+      setTelegramTestResult({ success: false, message: 'กรุณากรอก Bot Token และ Chat ID ก่อนทดสอบ' });
+      return;
+    }
+    setTestingTelegram(true);
+    setTelegramTestResult(null);
+    try {
+      const res = await fetch('/api/test-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: telegramBotToken, chatId: telegramChatId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTelegramTestResult({ success: true, message: data.message });
+      } else {
+        setTelegramTestResult({ success: false, message: data.error || 'การเชื่อมต่อ Telegram ล้มเหลว' });
+      }
+    } catch {
+      setTelegramTestResult({ success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย' });
+    } finally {
+      setTestingTelegram(false);
+    }
+  };
+
+  const handleCreateAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAlertError(null);
+    if (!alertValue || isNaN(parseFloat(alertValue))) {
+      setAlertError('กรุณากรอกค่าเกณฑ์แจ้งเตือนเป็นตัวเลข');
+      return;
+    }
+
+    try {
+      await addAlert({
+        symbol: alertSymbol,
+        type: alertType,
+        value: parseFloat(alertValue),
+      });
+      setAlertValue('');
+    } catch (err: any) {
+      setAlertError(err.message || 'เกิดข้อผิดพลาดในการบันทึกแจ้งเตือน');
     }
   };
 
@@ -273,6 +336,61 @@ function ProfileForm({ userProfile, user }: ProfileFormProps) {
           </div>
         </div>
 
+        {/* Telegram Notifications Configuration */}
+        <div className="space-y-4 pt-4 border-t border-card-border/50">
+          <h4 className="text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
+            <Bell size={14} className="text-accent-purple" />
+            TELEGRAM NOTIFICATION SETTINGS
+          </h4>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs text-muted font-medium">Telegram Bot Token</label>
+              <input
+                type="password"
+                value={telegramBotToken}
+                onChange={(e) => setTelegramBotToken(e.target.value)}
+                placeholder="e.g. 123456789:ABCdefGhI..."
+                className="w-full rounded-xl border border-card-border bg-white/5 px-4 py-2.5 text-xs text-white outline-none focus:border-accent-purple/50 focus:ring-1 focus:ring-accent-purple/30 transition-all"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-muted font-medium">Telegram Chat ID</label>
+              <input
+                type="text"
+                value={telegramChatId}
+                onChange={(e) => setTelegramChatId(e.target.value)}
+                placeholder="e.g. -1001234567890"
+                className="w-full rounded-xl border border-card-border bg-white/5 px-4 py-2.5 text-xs text-white outline-none focus:border-accent-purple/50 focus:ring-1 focus:ring-accent-purple/30 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleTestTelegram}
+              disabled={testingTelegram}
+              className="rounded-xl border border-card-border bg-white/5 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {testingTelegram && <Loader2 size={12} className="animate-spin" />}
+              ทดสอบการเชื่อมต่อ Telegram
+            </button>
+          </div>
+
+          {telegramTestResult && (
+            <div className={`mt-2 flex items-center gap-2 rounded-lg border p-2.5 text-[11px] ${
+              telegramTestResult.success 
+                ? 'border-green-500/20 bg-green-500/5 text-green-300' 
+                : 'border-red-500/20 bg-red-500/5 text-red-300'
+            }`}>
+              {telegramTestResult.success ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+              <span>{telegramTestResult.message}</span>
+            </div>
+          )}
+        </div>
+
         <button
           type="submit"
           disabled={loading}
@@ -287,6 +405,134 @@ function ProfileForm({ userProfile, user }: ProfileFormProps) {
           )}
         </button>
       </form>
+
+      {/* Alert Rules Management Section */}
+      <div className="space-y-6 pt-6 mt-6 border-t border-card-border/50">
+        <h3 className="text-base font-bold text-white tracking-wide flex items-center gap-2">
+          <Settings size={18} className="text-accent-purple" /> ตั้งเตือนระดับราคา (Price & Index Alerts)
+        </h3>
+
+        {/* Add Alert Form */}
+        <form onSubmit={handleCreateAlert} className="glass p-4 rounded-xl space-y-4">
+          <h4 className="text-xs font-bold text-white tracking-wide">สร้างรายการแจ้งเตือนใหม่</h4>
+          
+          {alertError && (
+            <div className="text-xs text-red-300 bg-red-500/5 border border-red-500/20 p-2.5 rounded-lg">
+              {alertError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {/* Stock / Index Symbol Selection */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted">ตัวย่อดัชนี/หุ้น</label>
+              <select
+                value={alertSymbol}
+                onChange={(e) => setAlertSymbol(e.target.value)}
+                className="w-full rounded-xl border border-card-border bg-sidebar px-3 py-2 text-xs text-white outline-none focus:border-accent-purple/50"
+              >
+                {Object.keys(INITIAL_STOCKS).map((symbol) => (
+                  <option key={symbol} value={symbol} className="bg-sidebar text-white">
+                    {symbol} - {INITIAL_STOCKS[symbol].name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Condition Type */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted">ประเภทเงื่อนไข</label>
+              <select
+                value={alertType}
+                onChange={(e) => setAlertType(e.target.value as any)}
+                className="w-full rounded-xl border border-card-border bg-sidebar px-3 py-2 text-xs text-white outline-none focus:border-accent-purple/50"
+              >
+                <option value="price_above">ราคาสูงกว่า ($)</option>
+                <option value="price_below">ราคาต่ำกว่า ($)</option>
+                <option value="percent_above">เปอร์เซ็นต์บวกมากกว่า (+%)</option>
+                <option value="percent_below">เปอร์เซ็นต์ลบมากกว่า (-%)</option>
+              </select>
+            </div>
+
+            {/* Threshold value input */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted">เกณฑ์มูลค่า</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="เช่น 1500 หรือ 2.5"
+                  value={alertValue}
+                  onChange={(e) => setAlertValue(e.target.value)}
+                  className="flex-1 rounded-xl border border-card-border bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-accent-purple/50"
+                />
+                <button
+                  type="submit"
+                  className="bg-accent-purple px-4 py-2 rounded-xl text-xs font-semibold text-white hover:bg-accent-purple/90 transition-colors flex items-center gap-1"
+                >
+                  <Plus size={14} /> เพิ่ม
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        {/* Alerts List */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-bold text-white tracking-wide">รายการแจ้งเตือนปัจจุบัน</h4>
+          {alerts.length === 0 ? (
+            <p className="text-xs text-muted">คุณยังไม่มีการตั้งแจ้งเตือนดัชนี/หุ้นในขณะนี้</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-card-border bg-sidebar/30">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-sidebar/55 border-b border-card-border text-muted">
+                    <th className="p-3">ดัชนี/หุ้น</th>
+                    <th className="p-3">ประเภทเงื่อนไข</th>
+                    <th className="p-3">ค่าเกณฑ์</th>
+                    <th className="p-3">แจ้งเตือนล่าสุด</th>
+                    <th className="p-3">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-card-border">
+                  {alerts.map((alert) => {
+                    let typeLabel = '';
+                    if (alert.type === 'price_above') typeLabel = 'ราคาสูงกว่า';
+                    else if (alert.type === 'price_below') typeLabel = 'ราคาต่ำกว่า';
+                    else if (alert.type === 'percent_above') typeLabel = 'เปอร์เซ็นต์สูงกว่า';
+                    else if (alert.type === 'percent_below') typeLabel = 'เปอร์เซ็นต์ต่ำกว่า';
+
+                    const unit = alert.type.startsWith('price') ? '$' : '%';
+
+                    return (
+                      <tr key={alert.id} className="hover:bg-white/[0.01]">
+                        <td className="p-3 font-semibold text-white">{alert.symbol}</td>
+                        <td className="p-3 text-muted">{typeLabel}</td>
+                        <td className="p-3 font-semibold text-white">{alert.value}{unit}</td>
+                        <td className="p-3 text-muted">
+                          {alert.last_triggered_at 
+                            ? new Date(alert.last_triggered_at).toLocaleString('th-TH') 
+                            : 'ยังไม่เคยส่งแจ้งเตือน'}
+                        </td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => removeAlert(alert.id)}
+                            className="text-down hover:text-red-400 p-1"
+                            title="ลบการแจ้งเตือน"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 }

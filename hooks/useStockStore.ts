@@ -14,6 +14,20 @@ interface UserProfile {
   full_name?: string;
   ai_provider?: string;
   ai_api_key?: string;
+  stock_api_key?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+}
+
+export interface Alert {
+  id: string;
+  user_id: string;
+  symbol: string;
+  type: 'percent_above' | 'percent_below' | 'price_above' | 'price_below';
+  value: number;
+  is_active: boolean;
+  last_triggered_at: string | null;
+  created_at: string;
 }
 
 interface DBWatchlist {
@@ -53,6 +67,7 @@ export function useStockStore() {
   const [authLoaded, setAuthLoaded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   // Set isClient on mount
   useEffect(() => {
@@ -129,6 +144,15 @@ export function useStockStore() {
           date: t.transaction_date,
         }));
         setTransactions(mappedTx);
+      }
+
+      // Alerts
+      const { data: alertData, error: alertError } = await supabase
+        .from('alerts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!alertError && alertData) {
+        setAlerts(alertData as Alert[]);
       }
     };
 
@@ -301,6 +325,98 @@ export function useStockStore() {
     };
   }, [transactions, stocks]);
 
+  // Alert Actions
+  const addAlert = useCallback(async (alert: Omit<Alert, 'id' | 'user_id' | 'is_active' | 'last_triggered_at' | 'created_at'>) => {
+    if (!user) return;
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('alerts')
+      .insert({
+        user_id: user.id,
+        symbol: alert.symbol,
+        type: alert.type,
+        value: alert.value,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setAlerts((prev) => [data as Alert, ...prev]);
+    }
+  }, [user]);
+
+  const removeAlert = useCallback(async (id: string) => {
+    if (!user) return;
+    const supabase = createClient();
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+    await supabase.from('alerts').delete().eq('id', id);
+  }, [user]);
+
+  // Evaluate alerts on stock updates
+  useEffect(() => {
+    if (!user || alerts.length === 0 || Object.keys(stocks).length === 0) return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const supabase = createClient();
+
+    alerts.forEach(async (alert) => {
+      if (!alert.is_active) return;
+
+      const lastTriggeredDay = alert.last_triggered_at ? alert.last_triggered_at.split('T')[0] : null;
+      if (lastTriggeredDay === todayStr) return;
+
+      const stock = stocks[alert.symbol];
+      if (!stock) return;
+
+      let triggered = false;
+      let currentValue = 0;
+
+      if (alert.type === 'price_above' && stock.price > alert.value) {
+        triggered = true;
+        currentValue = stock.price;
+      } else if (alert.type === 'price_below' && stock.price < alert.value) {
+        triggered = true;
+        currentValue = stock.price;
+      } else if (alert.type === 'percent_above' && stock.changePercent > alert.value) {
+        triggered = true;
+        currentValue = stock.changePercent;
+      } else if (alert.type === 'percent_below' && stock.changePercent < alert.value) {
+        triggered = true;
+        currentValue = stock.changePercent;
+      }
+
+      if (triggered) {
+        // 1. Immediately update local state to avoid race condition double triggering
+        setAlerts((prev) =>
+          prev.map((a) =>
+            a.id === alert.id ? { ...a, last_triggered_at: new Date().toISOString() } : a
+          )
+        );
+
+        // 2. Update last_triggered_at in Supabase
+        await supabase
+          .from('alerts')
+          .update({ last_triggered_at: new Date().toISOString() })
+          .eq('id', alert.id);
+
+        // 3. Send Telegram Alert
+        try {
+          await fetch('/api/send-telegram-alert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbol: alert.symbol,
+              alertType: alert.type,
+              value: alert.value,
+              currentValue,
+            }),
+          });
+        } catch (err) {
+          console.error('Failed to send Telegram alert:', err);
+        }
+      }
+    });
+  }, [stocks, alerts, user]);
+
   const logout = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -308,6 +424,7 @@ export function useStockStore() {
     setUserProfile(null);
     setWatchlist([]);
     setTransactions([]);
+    setAlerts([]);
   }, []);
 
   return {
@@ -315,11 +432,14 @@ export function useStockStore() {
     stocksMap: stocks,
     watchlist,
     transactions,
+    alerts,
     lastUpdatedSymbol,
     addToWatchlist,
     removeFromWatchlist,
     addTransaction,
     removeTransaction,
+    addAlert,
+    removeAlert,
     getPortfolioMetrics,
     isLoaded: isClient && authLoaded,
     user,
